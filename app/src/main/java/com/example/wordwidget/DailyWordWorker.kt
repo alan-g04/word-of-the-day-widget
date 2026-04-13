@@ -56,10 +56,26 @@ class DailyWordWorker(
 
             WordWidget().updateAll(context)
             Result.success()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Result.retry()
-        }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    
+                    // Force error message onto widget screen
+                    val manager = GlanceAppWidgetManager(context)
+                    val glanceIds = manager.getGlanceIds(WordWidget::class.java)
+                    
+                    glanceIds.forEach { glanceId ->
+                        updateAppWidgetState(context, glanceId) { prefs ->
+                            prefs.toMutablePreferences().apply {
+                                this[WordKeys.WORD] = "Network Error"
+                                this[WordKeys.PART_OF_SPEECH] = ""
+                                this[WordKeys.DEFINITION] = e.localizedMessage ?: e.toString()
+                                this[WordKeys.ETYMOLOGY] = "Check your API key or internet connection."
+                            }
+                        }
+                    }
+                    WordWidget().updateAll(context)
+                    Result.failure()
+                }
     }
 }
 
