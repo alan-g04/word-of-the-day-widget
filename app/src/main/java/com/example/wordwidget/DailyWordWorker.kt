@@ -29,19 +29,25 @@ class DailyWordWorker(
                 .build()
 
             val api = retrofit.create(WordnikService::class.java)
-            
             val apiKey = BuildConfig.WORDNIK_API_KEY
-            val wotd = api.getWordOfTheDay(apiKey)
-            val audioList = api.getAudio(wotd.word, apiKey)
             
-            val audioUrl = audioList.firstOrNull()?.fileUrl ?: ""
+            // 1. Fetch Word of the Day (If this fails, worker fails)
+            val wotd = api.getWordOfTheDay(apiKey)
+            
+            // 2. Attempt to fetch the audio
+            val audioUrl = try {
+                val audioList = api.getAudio(wotd.word, apiKey)
+                audioList.firstOrNull()?.fileUrl ?: ""
+            } catch (e: Exception) {
+                // If it returns a 404 (no audio) or 429 (rate limited), fail silently --> widget will still display word (without play button).
+                "" 
+            }
+            
             val definition = wotd.definitions.firstOrNull()
             
-            // Fetch active widget instances
             val manager = GlanceAppWidgetManager(context)
             val glanceIds = manager.getGlanceIds(WordWidget::class.java)
 
-            // Loop and update state for each
             glanceIds.forEach { glanceId ->
                 updateAppWidgetState(context, glanceId) { prefs ->
                     prefs.toMutablePreferences().apply {
@@ -56,26 +62,25 @@ class DailyWordWorker(
 
             WordWidget().updateAll(context)
             Result.success()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    
-                    // Force error message onto widget screen
-                    val manager = GlanceAppWidgetManager(context)
-                    val glanceIds = manager.getGlanceIds(WordWidget::class.java)
-                    
-                    glanceIds.forEach { glanceId ->
-                        updateAppWidgetState(context, glanceId) { prefs ->
-                            prefs.toMutablePreferences().apply {
-                                this[WordKeys.WORD] = "Network Error"
-                                this[WordKeys.PART_OF_SPEECH] = ""
-                                this[WordKeys.DEFINITION] = e.localizedMessage ?: e.toString()
-                                this[WordKeys.ETYMOLOGY] = "Check your API key or internet connection."
-                            }
-                        }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            
+            val manager = GlanceAppWidgetManager(context)
+            val glanceIds = manager.getGlanceIds(WordWidget::class.java)
+            
+            glanceIds.forEach { glanceId ->
+                updateAppWidgetState(context, glanceId) { prefs ->
+                    prefs.toMutablePreferences().apply {
+                        this[WordKeys.WORD] = "Network Error"
+                        this[WordKeys.PART_OF_SPEECH] = ""
+                        this[WordKeys.DEFINITION] = e.localizedMessage ?: e.toString()
+                        this[WordKeys.ETYMOLOGY] = "Check your API key or internet connection."
                     }
-                    WordWidget().updateAll(context)
-                    Result.failure()
                 }
+            }
+            WordWidget().updateAll(context)
+            Result.failure()
+        }
     }
 }
 
