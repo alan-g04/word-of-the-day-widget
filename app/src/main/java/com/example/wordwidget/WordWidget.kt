@@ -17,6 +17,7 @@ import androidx.glance.layout.*
 import androidx.glance.text.*
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.wordwidget.R
 
 class WordWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = WordWidget()
@@ -66,7 +67,7 @@ fun WidgetLayout(word: String, pos: String, def: String, etym: String, audioUrl:
 
                     if (audioUrl.isNotEmpty()) {
                         Image(
-                            provider = ImageProvider(android.R.drawable.ic_media_play),
+                            provider = ImageProvider(R.drawable.ic_play),
                             contentDescription = "Play Pronunciation",
                             modifier = GlanceModifier.clickable(
                                 actionSendBroadcast(
@@ -79,7 +80,7 @@ fun WidgetLayout(word: String, pos: String, def: String, etym: String, audioUrl:
                     }
 
                     Image(
-                        provider = ImageProvider(android.R.drawable.ic_popup_sync),
+                        provider = ImageProvider(R.drawable.ic_sync),
                         contentDescription = "Refresh",
                         modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>())
                             .size(32.dp)
