@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.glance.*
 import androidx.glance.action.*
 import androidx.glance.appwidget.*
+import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.action.*
 import androidx.glance.appwidget.lazy.*
 import androidx.glance.color.*
@@ -123,7 +124,62 @@ fun WidgetLayout(word: String, pos: String, def: String, etym: String, audioUrl:
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        val request = OneTimeWorkRequestBuilder<DailyWordWorker>().build()
-        WorkManager.getInstance(context).enqueue(request)
+        
+        // Provide feedback after refresh
+        updateAppWidgetState(context, glanceId) { prefs ->
+            prefs.toMutablePreferences().apply {
+                this[WordKeys.WORD] = "Syncing..."
+                this[WordKeys.DEFINITION] = "Connecting to Wordnik API..."
+                this[WordKeys.PART_OF_SPEECH] = ""
+                this[WordKeys.ETYMOLOGY] = ""
+            }
+        }
+        WordWidget().update(context, glanceId)
+
+        // Fetch the data directly, bypassing WorkManager
+        try {
+            val moshi = com.squareup.moshi.Moshi.Builder()
+                .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                .build()
+
+            val retrofit = retrofit2.Retrofit.Builder()
+                .baseUrl("https://api.wordnik.com/v4/")
+                .addConverterFactory(retrofit2.converter.moshi.MoshiConverterFactory.create(moshi))
+                .build()
+
+            val api = retrofit.create(WordnikService::class.java)
+            val apiKey = BuildConfig.WORDNIK_API_KEY
+            
+            val wotd = api.getWordOfTheDay(apiKey)
+            val audioUrl = try {
+                val audioList = api.getAudio(wotd.word, apiKey)
+                audioList.firstOrNull()?.fileUrl ?: ""
+            } catch (e: Exception) { "" }
+            
+            val definition = wotd.definitions.firstOrNull()
+
+            // Push data to UI
+            updateAppWidgetState(context, glanceId) { prefs ->
+                prefs.toMutablePreferences().apply {
+                    this[WordKeys.WORD] = wotd.word
+                    this[WordKeys.PART_OF_SPEECH] = definition?.partOfSpeech ?: ""
+                    this[WordKeys.DEFINITION] = definition?.text ?: ""
+                    this[WordKeys.ETYMOLOGY] = wotd.note ?: ""
+                    this[WordKeys.AUDIO_URL] = audioUrl
+                }
+            }
+            WordWidget().update(context, glanceId)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // If it fails, print exact error directly to widget
+            updateAppWidgetState(context, glanceId) { prefs ->
+                prefs.toMutablePreferences().apply {
+                    this[WordKeys.WORD] = "Error"
+                    this[WordKeys.DEFINITION] = e.localizedMessage ?: "Network request failed."
+                }
+            }
+            WordWidget().update(context, glanceId)
+        }
     }
 }
