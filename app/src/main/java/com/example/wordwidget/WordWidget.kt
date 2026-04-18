@@ -2,6 +2,7 @@ package com.example.wordwidget
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -26,14 +27,15 @@ class WordWidgetReceiver : GlanceAppWidgetReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         
-        // Intercept our custom direct broadcast
+        Log.d("WordWidget", "Broadcast Received! Action: ${intent.action}")
+        
         if (intent.action == "com.example.wordwidget.FORCE_SYNC") {
-            // goAsync() tells Android to keep the process alive while the network requests finish
+            Log.d("WordWidget", "Force Sync triggered, starting network request...")
             val pendingResult = goAsync()
             
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    // 1. Immediately provide visual feedback
+                    // Immediately provide visual feedback
                     updateAllWidgets(context, "Syncing...", "Connecting to API...")
 
                     val moshi = com.squareup.moshi.Moshi.Builder()
@@ -56,7 +58,7 @@ class WordWidgetReceiver : GlanceAppWidgetReceiver() {
 
                     val definition = wotd.definitions.firstOrNull()
 
-                    // 2. Push the successful data to the UI
+                    // Push successful data to UI
                     val manager = GlanceAppWidgetManager(context)
                     manager.getGlanceIds(WordWidget::class.java).forEach { glanceId ->
                         updateAppWidgetState(context, glanceId) { prefs ->
@@ -75,7 +77,7 @@ class WordWidgetReceiver : GlanceAppWidgetReceiver() {
                     e.printStackTrace()
                     updateAllWidgets(context, "Error", e.localizedMessage ?: "Failed")
                 } finally {
-                    // Tell the OS we are done and it can put the app back to sleep
+                    // Tell OS we are done and it can put the app back to sleep
                     pendingResult.finish()
                 }
             }
@@ -153,7 +155,6 @@ fun WidgetLayout(word: String, pos: String, def: String, etym: String, audioUrl:
                         )
                     }
 
-                    // THE FIX: Fire the raw broadcast directly to our receiver
                     val syncIntent = Intent(context, WordWidgetReceiver::class.java).apply {
                         action = "com.example.wordwidget.FORCE_SYNC"
                     }
