@@ -32,38 +32,76 @@ class WordWidgetReceiver : GlanceAppWidgetReceiver() {
         Log.d("WordWidget", "Broadcast Received! Action: ${intent.action}")
         
         if (intent.action == "com.example.wordwidget.FORCE_SYNC") {
-            Log.d("WordWidget", "Force Sync triggered, handing off to WorkManager...")
+            Log.d("WordWidget", "Force Sync triggered, executing direct network request...")
             
+            // 1. Tell Android to keep process alive for up to 10 seconds
             val pendingResult = goAsync()
             
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    // Immediately provide visual feedback
-                    val manager = GlanceAppWidgetManager(context)
-                    manager.getGlanceIds(WordWidget::class.java).forEach { glanceId ->
-                        updateAppWidgetState(context, glanceId) { prefs ->
-                            prefs.toMutablePreferences().apply {
-                                this[WordKeys.WORD] = "Syncing..."
-                                this[WordKeys.DEFINITION] = "Fetching word..."
-                                this[WordKeys.PART_OF_SPEECH] = ""
-                                this[WordKeys.ETYMOLOGY] = ""
-                            }
-                        }
-                    }
-                    WordWidget().updateAll(context)
+                    // Immediately update UI to "Syncing..."
+                    updateWidgetData(context, "Syncing...", "Connecting to Wordnik API...", "", "", "")
 
-                    // Hand off actual network request to WorkManager
-                    val request = OneTimeWorkRequestBuilder<DailyWordWorker>().build()
-                    WorkManager.getInstance(context).enqueue(request)
-                    Log.d("WordWidget", "WorkManager enqueued successfully.")
-                    
+                    // Execute network request instantly, bypassing JobScheduler
+                    val moshi = com.squareup.moshi.Moshi.Builder()
+                        .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                        .build()
+
+                    val retrofit = retrofit2.Retrofit.Builder()
+                        .baseUrl("https://api.wordnik.com/v4/")
+                        .addConverterFactory(retrofit2.converter.moshi.MoshiConverterFactory.create(moshi))
+                        .build()
+
+                    val api = retrofit.create(WordnikService::class.java)
+                    val apiKey = BuildConfig.WORDNIK_API_KEY
+
+                    val wotd = api.getWordOfTheDay(apiKey)
+                    val audioUrl = try {
+                        val audioList = api.getAudio(wotd.word, apiKey)
+                        audioList.firstOrNull()?.fileUrl ?: ""
+                    } catch (e: Exception) { "" }
+
+                    val definition = wotd.definitions.firstOrNull()
+
+                    // Push successful data to UI
+                    updateWidgetData(
+                        context, 
+                        wotd.word, 
+                        definition?.text ?: "", 
+                        definition?.partOfSpeech ?: "", 
+                        wotd.note ?: "", 
+                        audioUrl
+                    )
+                    Log.d("WordWidget", "Network request successful, UI updated.")
+
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    updateWidgetData(context, "Network Error", e.localizedMessage ?: "Failed to connect", "", "", "")
                 } finally {
+                    // Tell OS we are done and it can release the 10-second lock
                     pendingResult.finish()
                 }
             }
         }
+    }
+
+    // Helper function to cleanly push state to all widget instances
+    private suspend fun updateWidgetData(
+        context: Context, word: String, def: String, pos: String, etym: String, audio: String
+    ) {
+        val manager = GlanceAppWidgetManager(context)
+        manager.getGlanceIds(WordWidget::class.java).forEach { glanceId ->
+            updateAppWidgetState(context, glanceId) { prefs ->
+                prefs.toMutablePreferences().apply {
+                    this[WordKeys.WORD] = word
+                    this[WordKeys.DEFINITION] = def
+                    this[WordKeys.PART_OF_SPEECH] = pos
+                    this[WordKeys.ETYMOLOGY] = etym
+                    this[WordKeys.AUDIO_URL] = audio
+                }
+            }
+        }
+        WordWidget().updateAll(context)
     }
 }
 
